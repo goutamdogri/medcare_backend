@@ -26,6 +26,18 @@ export class ApiError extends Error {
     return new ApiError(400, 'BAD_REQUEST', message, details);
   }
 
+  static unauthorized(message = 'Authentication required'): ApiError {
+    return new ApiError(401, 'UNAUTHORIZED', message);
+  }
+
+  static forbidden(message = 'You do not have permission to perform this action'): ApiError {
+    return new ApiError(403, 'FORBIDDEN', message);
+  }
+
+  static conflict(message: string, code = 'CONFLICT'): ApiError {
+    return new ApiError(409, code, message);
+  }
+
   static notFound(message: string, code = 'NOT_FOUND'): ApiError {
     return new ApiError(404, code, message);
   }

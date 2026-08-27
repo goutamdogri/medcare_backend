@@ -883,3 +883,29 @@ CREATE TABLE warehouse_capacity_staging (
 );
 COMMENT ON TABLE warehouse_capacity_staging IS 'Future capacity snapshots — promoted to warehouse_capacity_log by snapshot_date';
 
+
+-- =============================================================
+-- [AUTH] 30. users
+-- Application accounts for email + password authentication.
+-- Passwords are stored ONLY as bcrypt hashes — never plaintext.
+-- =============================================================
+CREATE TABLE IF NOT EXISTS users (
+    id              UUID         PRIMARY KEY DEFAULT gen_random_uuid(),
+    name            VARCHAR(100) NOT NULL,
+    email           VARCHAR(320) NOT NULL,
+    password_hash   VARCHAR(100) NOT NULL,
+    role            VARCHAR(20)  NOT NULL DEFAULT 'viewer',
+    created_at      TIMESTAMP    NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    updated_at      TIMESTAMP    NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    CONSTRAINT uq_users_email UNIQUE (email)
+);
+
+COMMENT ON TABLE users IS 'Application accounts for email + password authentication';
+COMMENT ON COLUMN users.role IS 'admin | viewer | analyst';
+
+CREATE TRIGGER trg_users_set_updated_at
+    BEFORE UPDATE ON users
+    FOR EACH ROW
+    EXECUTE FUNCTION set_updated_at();
+
+

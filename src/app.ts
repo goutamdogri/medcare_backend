@@ -21,6 +21,7 @@ import { runsRouter } from './modules/runs/runs.routes.js';
 import { masterRouter } from './modules/master/master.routes.js';
 import { pipelineRouter } from './modules/pipeline/pipeline.routes.js';
 import { metricsRouter } from './modules/metrics/metrics.routes.js';
+import { authRouter } from './modules/auth/auth.routes.js';
 import { getHealthHandler } from './modules/system/system.controller.js';
 
 /**
@@ -50,7 +51,7 @@ export function createApp(): Express {
     cors({
       origin: env.CORS_ORIGIN,
       methods: ['GET', 'POST', 'PATCH', 'OPTIONS'],
-      allowedHeaders: ['Content-Type'],
+      allowedHeaders: ['Content-Type', 'Authorization'],
       maxAge: 86_400,
     }),
   );
@@ -79,6 +80,7 @@ export function createApp(): Express {
   api.use('/master', masterRouter);
   api.use('/pipeline', pipelineRouter);
   api.use('/model/metrics', metricsRouter);
+  api.use('/auth', authRouter);
 
   app.use('/api', api);
 

@@ -19,6 +19,7 @@ import { registerRunsDocs } from '../modules/runs/runs.docs.js';
 import { registerMasterDocs } from '../modules/master/master.docs.js';
 import { registerPipelineDocs } from '../modules/pipeline/pipeline.docs.js';
 import { registerMetricsDocs } from '../modules/metrics/metrics.docs.js';
+import { registerAuthDocs } from '../modules/auth/auth.docs.js';
 
 const TAGS = [
   { name: 'System', description: 'Health probe used by CI and load balancers' },
@@ -35,6 +36,7 @@ const TAGS = [
   { name: 'Master', description: 'Static reference data dumps (cached)' },
   { name: 'Pipeline', description: 'ML pipeline trigger proxies — wired to FastAPI sidecar' },
   { name: 'Model', description: 'Model performance evaluation metrics' },
+  { name: 'Auth', description: 'Email + password authentication and session management' },
 ] as const;
 
 function registerAllPaths(registry: OpenAPIRegistry): void {
@@ -52,6 +54,7 @@ function registerAllPaths(registry: OpenAPIRegistry): void {
   registerMasterDocs(registry);
   registerPipelineDocs(registry);
   registerMetricsDocs(registry);
+  registerAuthDocs(registry);
 }
 
 let cachedDoc: Record<string, unknown> | null = null;
