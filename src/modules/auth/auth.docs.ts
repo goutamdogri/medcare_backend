@@ -20,6 +20,7 @@ export function registerAuthDocs(registry: OpenAPIRegistry): void {
     path: '/api/auth/signup',
     tags: [tag],
     summary: 'Create an account and receive a session token',
+    security: [],
     requestBody: {
       description: 'Name, credentials and password confirmation',
       required: true,
@@ -54,6 +55,7 @@ export function registerAuthDocs(registry: OpenAPIRegistry): void {
     path: '/api/auth/signin',
     tags: [tag],
     summary: 'Exchange email + password for a session token',
+    security: [],
     requestBody: {
       description: 'Credentials',
       required: true,

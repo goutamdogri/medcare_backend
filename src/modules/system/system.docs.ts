@@ -8,6 +8,7 @@ export function registerSystemDocs(registry: OpenAPIRegistry): void {
     path: '/health',
     tags: ['System'],
     summary: 'Liveness/readiness probe (process + database)',
+    security: [],
     responses: {
       200: jsonOk('Service healthy', healthResponseSchema),
       503: {

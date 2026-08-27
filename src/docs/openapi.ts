@@ -81,7 +81,7 @@ export function getOpenApiDocument(): Record<string, unknown> {
           '- All errors use one envelope: `{ status, error, message?, details?, path, requestId, timestamp }`.',
       },
       servers: [{ url: '/' }],
-      security: [],
+      security: [{ bearerAuth: [] }],
       tags: TAGS.map((t) => ({ ...t })),
     }) as unknown as Record<string, unknown>;
   }

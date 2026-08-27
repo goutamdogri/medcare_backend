@@ -22,6 +22,7 @@ import { masterRouter } from './modules/master/master.routes.js';
 import { pipelineRouter } from './modules/pipeline/pipeline.routes.js';
 import { metricsRouter } from './modules/metrics/metrics.routes.js';
 import { authRouter } from './modules/auth/auth.routes.js';
+import { requireAuth } from './modules/auth/auth.middleware.js';
 import { getHealthHandler } from './modules/system/system.controller.js';
 
 /**
@@ -61,9 +62,15 @@ export function createApp(): Express {
 
   const api = express.Router();
 
+  // Open, unauthenticated surface: the API spec and authentication endpoints.
   api.get('/openapi.json', (_req, res) => {
     res.json(getOpenApiDocument());
   });
+
+  api.use('/auth', authRouter);
+
+  // Everything below this point requires a valid Bearer token.
+  api.use(requireAuth);
 
   api.use('/meta', metaRouter);
   api.use('/kpi', kpiRouter);
