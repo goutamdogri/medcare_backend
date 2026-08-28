@@ -70,7 +70,62 @@ export class PipelineStateRepository {
   }
 
   /**
-   * Delete all generated [OUTPUT] rows belonging to a given as_of_date.
+   * List the most recent `pipeline_run` rows (written by the ML sidecar),
+   * newest first. Returned so the frontend can surface live run status (e.g.
+   * the sidebar chip) without needing to know a specific run_id.
+   */
+  async listRuns(limit = 10): Promise<
+    {
+      runId: string;
+      runType: string;
+      status: string;
+      triggeredBy: string;
+      asOf: string | null;
+      stepsCompleted: string[];
+      error: string | null;
+      startedAt: string;
+      finishedAt: string | null;
+      durationSeconds: number | null;
+    }[]
+  > {
+    const result = await query<{
+      run_id: string;
+      run_type: string;
+      status: string;
+      triggered_by: string;
+      as_of: string;
+      steps_completed: string;
+      error: string;
+      started_at: Date;
+      finished_at: Date;
+      duration_seconds: number;
+    }>(
+      `SELECT run_id, run_type, status, triggered_by, as_of,
+              steps_completed, error, started_at, finished_at, duration_seconds
+       FROM pipeline_run
+       ORDER BY started_at DESC
+       LIMIT $1`,
+      [limit],
+    );
+    return result.rows.map((r) => ({
+      runId: r.run_id,
+      runType: r.run_type,
+      status: r.status,
+      triggeredBy: r.triggered_by,
+      asOf: r.as_of,
+      stepsCompleted: (r.steps_completed || '')
+        .split(',')
+        .map((s) => s.trim())
+        .filter(Boolean),
+      error: r.error,
+      startedAt: r.started_at?.toISOString?.() ?? String(r.started_at),
+      finishedAt: r.finished_at?.toISOString?.() ?? null,
+      durationSeconds: r.duration_seconds != null ? Number(r.duration_seconds) : null,
+    }));
+  }
+
+/**
+ * Delete all generated [OUTPUT] rows belonging to a given as_of_date.
    * Used before a retry so the rebuilt chain starts from a clean slate.
    * Returns a map of table -> rows deleted.
    */

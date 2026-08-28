@@ -96,4 +96,9 @@ export class PipelineService {
   async getRunStatus(runId: string) {
     return mlClient.get(`/run/${runId}/status`);
   }
+
+  /** List persisted ML runs (pipeline_run), newest first. */
+  async listRuns(limit?: number) {
+    return this.state.listRuns(limit);
+  }
 }

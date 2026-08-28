@@ -1,5 +1,6 @@
 import { Router } from 'express';
 import {
+  getPipelineRunsHandler,
   getPipelineStateHandler,
   getPipelineStatusHandler,
   postAdvanceDayHandler,
@@ -17,6 +18,7 @@ pipelineRouter.post('/retry', postRetryHandler);
 pipelineRouter.post('/rollover', postRolloverHandler);
 pipelineRouter.post('/retrain', postRetrainHandler);
 pipelineRouter.get('/state', getPipelineStateHandler);
+pipelineRouter.get('/runs', getPipelineRunsHandler);
 pipelineRouter.get('/status/:runId', getPipelineStatusHandler);
 pipelineRouter.post('/rollover-complete', postRolloverCompleteHandler);
 pipelineRouter.post('/retrain-complete', postRetrainCompleteHandler);

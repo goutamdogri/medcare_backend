@@ -94,6 +94,12 @@ export const getPipelineStateHandler = asyncHandler(async (_req: Request, res: R
   res.json(result);
 });
 
+export const getPipelineRunsHandler = asyncHandler(async (req: Request, res: Response) => {
+  const limit = Number.parseInt(String(req.query.limit ?? '10'), 10);
+  const result = await pipeline.listRuns(Number.isFinite(limit) ? limit : 10);
+  res.json({ runs: result });
+});
+
 export const postRolloverCompleteHandler = asyncHandler(async (req: Request, _res: Response) => {
   const body = req.body ?? {};
   logger.info(
