@@ -77,8 +77,9 @@ export async function assertSchema(): Promise<void> {
   const missing = REQUIRED_TABLES.filter((t) => !found.has(t));
   if (missing.length > 0) {
     throw new Error(
-      `Database schema incomplete — missing tables: ${missing.join(', ')}. ` +
-        `Apply db/schema/schema_postgres.sql to the "${env.DATABASE_URL.split('/').pop()}" database.`,
+      `Database schema incomplete after migrations — missing tables: ${missing.join(', ')}. ` +
+        `These tables are not covered by any migration in db/migrations. ` +
+        `Add a new numbered migration (e.g. 004_<name>.sql) for the "${env.DATABASE_URL.split('/').pop()}" database.`,
     );
   }
 }

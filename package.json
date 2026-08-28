@@ -18,7 +18,9 @@
     "format": "prettier --write .",
     "format:check": "prettier --check .",
     "test": "vitest run",
-    "test:watch": "vitest"
+    "test:watch": "vitest",
+    "migrate": "tsx src/config/migrate-cli.ts",
+    "migrate:create": "node scripts/create-migration.mjs"
   },
   "dependencies": {
     "@asteasolutions/zod-to-openapi": "^7.3.0",

@@ -19,6 +19,7 @@ import {
 } from './config/database.js';
 import { env } from './config/env.js';
 import { logger } from './config/logger.js';
+import { runMigrations } from './config/migrations.js';
 
 process.on('uncaughtException', (err) => {
   logger.fatal({ err }, 'uncaughtException — exiting');
@@ -37,8 +38,11 @@ const SHUTDOWN_TIMEOUT_MS = 10_000;
 async function main(): Promise<void> {
   try {
     await checkDatabase();
+    // Bring the schema up to the version this backend expects: any database —
+    // fresh or at an older version — applies the missing migrations in order.
+    await runMigrations();
     await assertSchema();
-    logger.info('Database connectivity and schema checks passed');
+    logger.info('Database connectivity, migrations and schema checks passed');
   } catch (err) {
     logger.fatal({ err }, 'Startup self-check failed — refusing to start');
     process.exit(1);
