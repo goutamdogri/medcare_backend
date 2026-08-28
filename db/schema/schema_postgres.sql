@@ -796,20 +796,31 @@ COMMENT ON TABLE pipeline_state IS 'Simulated today date — single row, advance
 
 
 -- =============================================================
--- [STATE] 24. pipeline_state
--- Single-row table holding the simulated "today" date.
--- All pipelines read from here instead of MAX(date) or config.yaml.
--- The backend advances this date; the ML project only reads it.
+-- [STATE] 24b. pipeline_run
+-- Persistent status of each ML sidecar execution (daily / retrain).
+-- Written by the ML sidecar; polled by the backend via
+-- GET /run/{run_id}/status. Kept in the DB (not memory) so a sidecar
+-- restart does not lose in-flight or completed run history.
 -- =============================================================
-CREATE TABLE pipeline_state (
-    id              INT PRIMARY KEY DEFAULT 1,
-    simulated_today DATE NOT NULL DEFAULT '2019-01-17',
-    created_at      TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
-    updated_at      TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
-    CONSTRAINT single_row CHECK (id = 1)
+CREATE TABLE pipeline_run (
+    run_id             VARCHAR(20)  PRIMARY KEY,
+    run_type           VARCHAR(20)  NOT NULL DEFAULT 'daily',
+    status             VARCHAR(20)  NOT NULL DEFAULT 'running',
+    triggered_by       VARCHAR(50)  NOT NULL DEFAULT 'api',
+    as_of              DATE,
+    steps_completed    TEXT,
+    error              TEXT,
+    started_at         TIMESTAMP    NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    finished_at        TIMESTAMP,
+    duration_seconds   DECIMAL(10,1)
 );
 
-COMMENT ON TABLE pipeline_state IS 'Simulated today date — single row, advanced by the backend, read by ML pipelines';
+COMMENT ON TABLE pipeline_run IS 'Persistent status of ML sidecar runs (daily/retrain) — survives sidecar restarts';
+COMMENT ON COLUMN pipeline_run.status IS 'running | completed | failed';
+COMMENT ON COLUMN pipeline_run.steps_completed IS 'Comma-delimited list of completed chain steps';
+
+CREATE INDEX pipeline_run_idx_status ON pipeline_run (status);
+CREATE INDEX pipeline_run_idx_started_at ON pipeline_run (started_at DESC);
 
 
 -- =============================================================

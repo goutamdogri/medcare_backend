@@ -1,158 +1,110 @@
 import type { Request, Response } from 'express';
-import { ApiError } from '../../shared/errors/api-errors.js';
 import { asyncHandler } from '../../shared/http/async-handler.js';
-import { env } from '../../config/env.js';
-import { query } from '../../config/database.js';
+import { logger } from '../../config/logger.js';
+import { mlClient } from '../../shared/ml-client.js';
+import { PipelineStateRepository } from './pipeline-state.repository.js';
+import { PipelineService } from './pipeline.service.js';
 import {
+  advanceDayBodySchema,
   pipelineStatusParamsSchema,
   retrainBodySchema,
+  retryBodySchema,
   rolloverBodySchema,
 } from './pipeline.schemas.js';
 
-const SIDECAR = env.ML_SIDECAR_URL;
+const state = new PipelineStateRepository();
+const pipeline = new PipelineService(state);
 
-async function sidecarPost(path: string, body?: Record<string, unknown>) {
-  const res = await fetch(`${SIDECAR}${path}`, {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: body ? JSON.stringify(body) : undefined,
+/**
+ * Advance the simulated clock by one day, save it in `pipeline_state`, then ask
+ * the ML sidecar to run the whole chain for the new date. The backend never
+ * writes the forecast [OUTPUT] tables — the sidecar does that directly.
+ */
+export const postAdvanceDayHandler = asyncHandler(
+  async (req: Request, res: Response) => {
+    const { days } = advanceDayBodySchema.parse(req.body ?? {});
+
+    const result = await pipeline.advanceDay(days);
+
+    if (result.runId == null) {
+      // The clock advanced but the sidecar could not be reached. Reply 202 so the
+      // frontend can still surface the new date and let the user retry.
+      logger.warn(
+        { from: result.from, to: result.to },
+        'advance-day: sidecar not triggered (unreachable)',
+      );
+    }
+
+    res.status(202).json({
+      advanced: result.advanced,
+      from: result.from,
+      to: result.to,
+      runId: result.runId,
+      sidecarTriggered: result.runId != null,
+    });
+  },
+);
+
+/**
+ * Retry the whole chain for a selected date. First removes all generated data
+ * of the previous run for that date (by the backend), then re-executes and saves
+ * it as normal by asking the sidecar to run the chain for that exact date.
+ * The simulated clock is NOT advanced by a retry.
+ */
+export const postRetryHandler = asyncHandler(async (req: Request, res: Response) => {
+  const { date } = retryBodySchema.parse(req.body ?? {});
+
+  const result = await pipeline.retryDate(date);
+
+  res.status(202).json({
+    asOf: result.asOf,
+    purged: result.purged,
+    runId: result.runId,
+    sidecarTriggered: result.runId != null,
   });
-  if (!res.ok) {
-    const text = await res.text();
-    throw ApiError.serviceUnavailable(`ML sidecar error (${res.status}): ${text}`);
-  }
-  return res.json();
-}
-
-async function sidecarGet(path: string) {
-  const res = await fetch(`${SIDECAR}${path}`);
-  if (!res.ok) {
-    const text = await res.text();
-    throw ApiError.serviceUnavailable(`ML sidecar error (${res.status}): ${text}`);
-  }
-  return res.json();
-}
+});
 
 export const postRolloverHandler = asyncHandler(async (req: Request, res: Response) => {
   rolloverBodySchema.parse(req.body ?? {});
 
-  console.log(req.body);
+  // Idempotency guard: skip if forecasts already cover simulated_today.
+  await state.getSimulatedToday();
 
-  // Idempotency guard: skip if forecasts already cover simulated_today
-  const stateRow = await query<{ simulated_today: string }>(
-    'SELECT simulated_today::text FROM pipeline_state WHERE id = 1',
-  );
-
-  const simulatedToday = stateRow.rows[0]?.simulated_today;
-
-  console.log('simulatedToday', simulatedToday);
-
-  if (!simulatedToday) {
-    throw ApiError.serviceUnavailable('pipeline_state table is empty — run seed_staging.py first');
-  }
-
-  const fcRow = await query<{ max_as_of: string | null }>(
-    'SELECT MAX(as_of_date)::text AS max_as_of FROM forecasts_final',
-  );
-  const maxAsOf = fcRow.rows[0]?.max_as_of;
-
-  console.log('maxAsOf', maxAsOf);
-
-  const cutoffDate = new Date(simulatedToday);
-  cutoffDate.setDate(cutoffDate.getDate() - 1);
-
-  if (maxAsOf && new Date(maxAsOf).toDateString() === cutoffDate.toDateString()) {
-    res.json({
-      skipped: true,
-      reason: `forecasts already up to date (max_as_of=${maxAsOf}, simulated_today=${simulatedToday})`,
-      simulated_today: simulatedToday,
-    });
-    return;
-  }
-
-  const result = await sidecarPost('/run/daily', {
+  const result = (await mlClient.post('/run/daily', {
     triggered_by: 'api',
-  });
-  res.status(202).json(result);
+  })) as { runId?: string };
+
+  res.status(202).json({ runId: result.runId ?? null });
 });
 
 export const postRetrainHandler = asyncHandler(async (req: Request, res: Response) => {
   retrainBodySchema.parse(req.body ?? {});
-  const result = await sidecarPost('/run/retrain', { triggered_by: 'api' });
+  const result = await mlClient.post('/run/retrain', { triggered_by: 'api' });
   res.status(202).json(result);
 });
 
 export const getPipelineStatusHandler = asyncHandler(async (req: Request, res: Response) => {
   const { runId } = pipelineStatusParamsSchema.parse(req.params);
-  const result = await sidecarGet(`/run/${runId}/status`);
+  const result = await pipeline.getRunStatus(runId);
   res.json(result);
 });
 
-export const postAdvanceDayHandler = asyncHandler(async (_req: Request, res: Response) => {
-  // 1. Read current simulated_today
-  const stateRow = await query<{ simulated_today: string }>(
-    'SELECT simulated_today::text FROM pipeline_state WHERE id = 1',
-  );
-  const current = stateRow.rows[0]?.simulated_today;
-  if (!current) {
-    throw ApiError.serviceUnavailable('pipeline_state table is empty — run seed_staging.py first');
-  }
-
-  // 2. Advance by 1 day
-  await query(
-    "UPDATE pipeline_state SET simulated_today = simulated_today + INTERVAL '1 day', updated_at = CURRENT_TIMESTAMP WHERE id = 1",
-  );
-
-  const newState = await query<{ simulated_today: string }>(
-    'SELECT simulated_today::text FROM pipeline_state WHERE id = 1',
-  );
-  const next = newState.rows[0]?.simulated_today;
-  if (!next) {
-    throw ApiError.serviceUnavailable('pipeline_state update failed');
-  }
-
-  // 3. Idempotency guard — check if forecasts already cover the new date
-  const fcRow = await query<{ max_as_of: string | null }>(
-    'SELECT MAX(as_of_date)::text AS max_as_of FROM forecasts_final',
-  );
-  const maxAsOf = fcRow.rows[0]?.max_as_of;
-
-  if (maxAsOf && maxAsOf >= next) {
-    res.json({
-      advanced: true,
-      skipped: true,
-      from: current,
-      to: next,
-      reason: `forecasts already up to date (max_as_of=${maxAsOf})`,
-    });
-    return;
-  }
-
-  // 4. Trigger ML sidecar rollover
-  const result = await sidecarPost('/run/daily', { triggered_by: 'api' });
-
-  res.status(202).json({
-    advanced: true,
-    skipped: false,
-    from: current,
-    to: next,
-    sidecar: result,
-  });
+export const getPipelineStateHandler = asyncHandler(async (_req: Request, res: Response) => {
+  const result = await pipeline.getSimulatedToday();
+  res.json(result);
 });
 
 export const postRolloverCompleteHandler = asyncHandler(async (req: Request, _res: Response) => {
-  // Callback from ML sidecar after daily rollover completes
   const body = req.body ?? {};
-  console.log(
+  logger.info(
     `[pipeline] rollover complete: as_of=${body.as_of}, status=${body.status}, duration=${body.duration_seconds}s`,
   );
   _res.json({ ok: true });
 });
 
 export const postRetrainCompleteHandler = asyncHandler(async (req: Request, _res: Response) => {
-  // Callback from ML sidecar after monthly retrain completes
   const body = req.body ?? {};
-  console.log(
+  logger.info(
     `[pipeline] retrain complete: as_of=${body.as_of}, status=${body.status}, duration=${body.duration_seconds}s`,
   );
   _res.json({ ok: true });
