@@ -87,7 +87,6 @@ export function createApp(): Express {
   api.use('/master', masterRouter);
   api.use('/pipeline', pipelineRouter);
   api.use('/model/metrics', metricsRouter);
-  api.use('/auth', authRouter);
 
   app.use('/api', api);
 
