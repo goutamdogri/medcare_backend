@@ -29,6 +29,11 @@ const envSchema = z.object({
     .default('info'),
   MASTER_CACHE_TTL_MS: z.coerce.number().int().positive().default(3_600_000),
   ML_SIDECAR_URL: z.string().url().default('http://localhost:8000'),
+  JWT_SECRET: z
+    .string()
+    .min(32, 'JWT_SECRET must be at least 32 characters for HS256')
+    .default('dev-only-medcare-control-tower-secret-change-me'),
+  JWT_EXPIRES_IN: z.string().default('7d'),
 });
 
 const parsed = envSchema.safeParse(process.env);

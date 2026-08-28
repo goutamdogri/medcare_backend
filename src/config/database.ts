@@ -63,6 +63,7 @@ const REQUIRED_TABLES = [
   'alert_digest',
   'rolling_run_log',
   'pipeline_state',
+  'users',
 ] as const;
 
 export async function assertSchema(): Promise<void> {
