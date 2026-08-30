@@ -4,6 +4,19 @@ import request from 'supertest';
 
 const app = createApp();
 
+/** Creates a throwaway authenticated session via signup (auth is enforced). */
+async function authToken(): Promise<string> {
+  const email = `covtest${Date.now()}-${Math.floor(Math.random() * 1e6)}@medcare.local`;
+  const res = await request(app).post('/api/auth/signup').send({
+    name: 'Coverage Test',
+    email,
+    password: 'password123',
+    confirmPassword: 'password123',
+  });
+  expect(res.status).toBe(201);
+  return (res.body as { token: string }).token;
+}
+
 describe('Allocation endpoints', () => {
   it('transfers: paginated rows + summary roll-ups', async () => {
     const res = await request(app).get('/api/transfers?size=5');
@@ -119,5 +132,62 @@ describe('Pipeline stubs (spec §7)', () => {
     const bad = await request(app).post('/api/pipeline/rollover').send({ horizon: 99 });
     expect(bad.status).toBe(400);
     expect(bad.body.error).toBe('VALIDATION_ERROR');
+  });
+});
+
+describe('GET /api/replenishment/:skuId/:region/coverage', () => {
+  it('reconciles an order with its inbound transfer plan', async () => {
+    const auth = { Authorization: `Bearer ${await authToken()}` };
+    // N02BE-01/WH_LUCKNOW reliably has both an order and inbound transfers.
+    const res = await request(app)
+      .get('/api/replenishment/N02BE-01/WH_LUCKNOW/coverage')
+      .set(auth);
+    expect(res.status).toBe(200);
+    const body = res.body;
+    expect(body.skuId).toBe('N02BE-01');
+    expect(body.region).toBe('WH_LUCKNOW');
+    expect(body.orderQty).toBeGreaterThan(0);
+    expect(body.inboundUnits).toBeGreaterThanOrEqual(0);
+    expect(Array.isArray(body.inboundTransfers)).toBe(true);
+    // netToOrder is orderQty − inboundUnits, floored at 0
+    expect(body.netToOrder).toBe(Math.max(0, body.orderQty - body.inboundUnits));
+    // every inbound transfer targets this region and SKU
+    for (const t of body.inboundTransfers) {
+      expect(['expiry_rescue', 'shortage_rescue']).toContain(t.reason);
+    }
+  });
+
+  it('floors netToOrder at 0 when inbound transfers cover the order', async () => {
+    const auth = { Authorization: `Bearer ${await authToken()}` };
+    const res = await request(app)
+      .get('/api/replenishment/N02BE-01/WH_LUCKNOW/coverage')
+      .set(auth);
+    expect(res.status).toBe(200);
+    // Transfers into this region cover the whole recommended order → nothing left to buy.
+    expect(res.body.inboundUnits).toBeGreaterThanOrEqual(res.body.orderQty);
+    expect(res.body.netToOrder).toBe(0);
+    expect(res.body.inboundTransfers.length).toBeGreaterThan(0);
+    expect(res.body.coveragePct).toBe(100);
+  });
+
+  it('answers empty coverage for a SKU/region with no data', async () => {
+    const auth = { Authorization: `Bearer ${await authToken()}` };
+    const res = await request(app)
+      .get('/api/replenishment/ZZZ-99/WH_NOWHERE/coverage')
+      .set(auth);
+    expect(res.status).toBe(200);
+    expect(res.body.orderQty).toBe(0);
+    expect(res.body.inboundUnits).toBe(0);
+    expect(res.body.netToOrder).toBe(0);
+    expect(res.body.inboundTransfers).toEqual([]);
+  });
+
+  it('404s for an asOf before any successful pipeline run', async () => {
+    const auth = { Authorization: `Bearer ${await authToken()}` };
+    const res = await request(app)
+      .get('/api/replenishment/N02BE-01/WH_LUCKNOW/coverage?asOf=2018-06-01')
+      .set(auth);
+    expect(res.status).toBe(404);
+    expect(res.body.error).toBe('RUN_NOT_FOUND');
   });
 });

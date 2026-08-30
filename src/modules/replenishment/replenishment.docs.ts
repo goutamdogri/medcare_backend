@@ -1,6 +1,7 @@
 import type { OpenAPIRegistry } from '@asteasolutions/zod-to-openapi';
 import { jsonOk, standardErrors } from '../../docs/components.js';
 import {
+  replenishmentCoverageSchema,
   replenishmentResponseSchema,
   replenishmentSummarySchema,
 } from './replenishment.schemas.js';
@@ -55,6 +56,28 @@ export function registerReplenishmentDocs(registry: OpenAPIRegistry): void {
     ],
     responses: {
       200: jsonOk('Order-book aggregates', replenishmentSummarySchema),
+      ...standardErrors,
+    },
+  });
+
+  registry.registerPath({
+    method: 'get',
+    path: '/api/replenishment/{skuId}/{region}/coverage',
+    tags: ['Replenishment'],
+    summary: 'Reconcile an order with its inbound transfer plan',
+    description:
+      'For one SKU × region, returns the order quantity alongside the units already arriving ' +
+      'via the transfer plan (inbound transfers into `region`). `netToOrder` is `orderQty − ' +
+      'inboundUnits` floored at 0 — the amount still to be bought from the supplier. ' +
+      'Powers the "recommended transfer plan / remaining to order" audit shown under the order-book ' +
+      'calculation drawer.',
+    parameters: [
+      { name: 'asOf', in: 'query', required: false, schema: { type: 'string', format: 'date' } },
+      { name: 'skuId', in: 'path', required: true, schema: { type: 'string' }, example: 'N02BE-01' },
+      { name: 'region', in: 'path', required: true, schema: { type: 'string' }, example: 'WH_INDORE' },
+    ],
+    responses: {
+      200: jsonOk('Order-to-transfer reconciliation', replenishmentCoverageSchema),
       ...standardErrors,
     },
   });

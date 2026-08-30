@@ -1,5 +1,7 @@
 import { query } from '../../config/database.js';
 import type {
+  InboundTransfer,
+  ReplenishmentCoverage,
   ReplenishmentFilters,
   ReplenishmentItem,
   SortKey,
@@ -182,5 +184,83 @@ export async function fetchSummary(asOf: string): Promise<ReplenishmentSummaryDa
       totalOrderQty: Number(row.total_order_qty),
       totalOrderValueInr: Number(row.total_order_value_inr),
     })),
+  };
+}
+
+interface InboundTransferRow {
+  id: string;
+  batch_id: string | null;
+  from_location: string;
+  qty_units: string;
+  transfer_lead_days: string;
+  days_to_expiry: string | null;
+  reason: string;
+  carrier: string | null;
+}
+
+interface OrderRow {
+  order_qty: string;
+}
+
+/**
+ * Reconcile a single SKU × region order with its inbound transfer plan.
+ *
+ * Inbound transfers are those whose `to_location` equals the order's region —
+ * they are already in transit into this stocking point, so the units that still
+ * need to be purchased from the supplier is the order qty minus whatever the
+ * transfer plan covers (never negative).
+ */
+export async function fetchSkuCoverage(
+  asOf: string,
+  skuId: string,
+  region: string,
+): Promise<ReplenishmentCoverage> {
+  const [orderResult, transferResult] = await Promise.all([
+    query<OrderRow>(
+      `SELECT COALESCE((SELECT order_qty::text FROM replenishment_orders
+         WHERE as_of_date = $1 AND sku_id = $2 AND region = $3
+         ORDER BY created_at DESC LIMIT 1), '0') AS order_qty`,
+      [asOf, skuId, region],
+    ),
+    query<InboundTransferRow>(
+      `SELECT t.id::text AS id, t.batch_id, t.from_location,
+              t.qty_units::text AS qty_units,
+              t.transfer_lead_days::text AS transfer_lead_days,
+              t.days_to_expiry::text AS days_to_expiry, t.reason, l.carrier
+       FROM transfer_plan t
+       LEFT JOIN lanes l
+         ON l.from_location = t.from_location
+        AND l.to_location = t.to_location
+        AND l.mode = 'transfer'
+       WHERE t.as_of_date = $1 AND t.sku_id = $2 AND t.to_location = $3
+       ORDER BY t.days_to_expiry ASC NULLS LAST, t.qty_units DESC, t.id`,
+      [asOf, skuId, region],
+    ),
+  ]);
+
+  const orderQty = Number(orderResult.rows[0]?.order_qty ?? 0);
+  const transfers: InboundTransfer[] = transferResult.rows.map((row) => ({
+    id: Number(row.id),
+    batchId: row.batch_id,
+    fromLocation: row.from_location,
+    qtyUnits: Number(row.qty_units),
+    transferLeadDays: Number(row.transfer_lead_days),
+    daysToExpiry: row.days_to_expiry === null ? null : Number(row.days_to_expiry),
+    reason: row.reason,
+    carrier: row.carrier,
+  }));
+  const inboundUnits = transfers.reduce((acc, t) => acc + t.qtyUnits, 0);
+  const netToOrder = Math.max(0, orderQty - inboundUnits);
+  const coveragePct = orderQty > 0 ? Math.min(100, (inboundUnits / orderQty) * 100) : null;
+
+  return {
+    asOf,
+    skuId,
+    region,
+    orderQty,
+    inboundUnits,
+    netToOrder,
+    coveragePct: coveragePct === null ? null : Math.round(coveragePct * 10) / 10,
+    inboundTransfers: transfers,
   };
 }
